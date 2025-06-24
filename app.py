@@ -8,7 +8,9 @@ import difflib
 # Load environment variables
 load_dotenv()
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-openai.api_key = OPENAI_API_KEY
+
+# Set up OpenAI client (v1+)
+client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -29,14 +31,14 @@ def run_prompt():
             results.append({'error': f'Missing input or expected_output in test case {idx}.'})
             continue
         try:
-            response = openai.ChatCompletion.create(
+            response = client.chat.completions.create(
                 model="gpt-4",
                 messages=[
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": str(input_data)}
                 ]
             )
-            model_response = response['choices'][0]['message']['content'].strip()
+            model_response = response.choices[0].message.content.strip()
             similarity = difflib.SequenceMatcher(None, model_response, expected_output).ratio()
             passed = similarity > 0.9  # You can adjust the threshold
             results.append({
