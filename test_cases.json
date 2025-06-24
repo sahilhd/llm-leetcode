@@ -1,14 +1,74 @@
 [
   {
-    "input": "What is 2 + 2?",
-    "expected_output": "4"
+    "dataset": [
+      {"name": "John Smith", "employee_id": "EMP001", "salary": 95000, "department": "Engineering"},
+      {"name": "Sarah Johnson", "employee_id": "EMP002", "salary": 120000, "department": "Sales"},
+      {"name": "Mike Davis", "employee_id": "EMP003", "salary": 85000, "department": "Marketing"},
+      {"name": "Lisa Wilson", "employee_id": "EMP004", "salary": 150000, "department": "Engineering"},
+      {"name": "Tom Brown", "employee_id": "EMP005", "salary": 75000, "department": "HR"}
+    ],
+    "question": "Return the names and employee_id of people who earn more than 100k in the format {name: ..., employee_id: ...}.",
+    "expected_output": [
+      {"name": "Sarah Johnson", "employee_id": "EMP002"},
+      {"name": "Lisa Wilson", "employee_id": "EMP004"}
+    ]
   },
   {
-    "input": "What is the capital of France?",
-    "expected_output": "Paris"
+    "dataset": [
+      {"product": "Laptop", "price": 1200, "category": "Electronics", "in_stock": true},
+      {"product": "Desk Chair", "price": 250, "category": "Furniture", "in_stock": false},
+      {"product": "Coffee Maker", "price": 80, "category": "Appliances", "in_stock": true},
+      {"product": "Smartphone", "price": 800, "category": "Electronics", "in_stock": true}
+    ],
+    "question": "List all electronics products that are in stock with their product name and price in the format {product: ..., price: ...}.",
+    "expected_output": [
+      {"product": "Laptop", "price": 1200},
+      {"product": "Smartphone", "price": 800}
+    ]
   },
   {
-    "input": "Who wrote Hamlet?",
-    "expected_output": "William Shakespeare"
+    "dataset": [
+      {"city": "New York", "temperature": 72, "humidity": 65, "condition": "Sunny"},
+      {"city": "Los Angeles", "temperature": 85, "humidity": 45, "condition": "Clear"},
+      {"city": "Chicago", "temperature": 45, "humidity": 70, "condition": "Cloudy"},
+      {"city": "Miami", "temperature": 88, "humidity": 80, "condition": "Rainy"}
+    ],
+    "question": "Find cities with temperature above 80 degrees and return their city name and humidity in the format {city: ..., humidity: ...}.",
+    "expected_output": [
+      {"city": "Los Angeles", "humidity": 45},
+      {"city": "Miami", "humidity": 80}
+    ]
+  },
+  {
+    "dataset": "The quarterly sales report shows that our top performers this quarter were Sarah Johnson from the Sales department who achieved $45,000 in sales, followed by Mike Chen from Marketing with $38,500, and Lisa Rodriguez from Sales with $42,200. The regional breakdown indicates that the Northeast region led with $125,000 total sales, while the West Coast contributed $98,000, and the Midwest brought in $87,500. Our highest-grossing product was the Premium Software Suite which sold 150 units at $299 each, generating $44,850 in revenue.",
+    "question": "Extract all sales representatives mentioned in the text along with their sales amounts in the format {name: ..., sales_amount: ...}.",
+    "expected_output": [
+      {"name": "Sarah Johnson", "sales_amount": 45000},
+      {"name": "Mike Chen", "sales_amount": 38500},
+      {"name": "Lisa Rodriguez", "sales_amount": 42200}
+    ]
+  },
+  {
+    "dataset": "Patient medical records: John Smith, age 45, was admitted on March 15th with symptoms of chest pain and shortness of breath. His blood pressure was 140/90 mmHg, heart rate 95 bpm, and temperature 98.6°F. The attending physician Dr. Sarah Wilson prescribed aspirin 325mg daily and recommended follow-up in 2 weeks. Another patient, Maria Garcia, age 32, visited on March 18th complaining of severe headaches. Her vitals showed blood pressure 120/80 mmHg, heart rate 72 bpm, and temperature 99.1°F. Dr. Michael Brown diagnosed her with tension headaches and prescribed ibuprofen 400mg as needed.",
+    "question": "Extract all patients' names, ages, and blood pressure readings in the format {name: ..., age: ..., blood_pressure: ...}.",
+    "expected_output": [
+      {"name": "John Smith", "age": 45, "blood_pressure": "140/90"},
+      {"name": "Maria Garcia", "age": 32, "blood_pressure": "120/80"}
+    ]
+  },
+  {
+    "dataset": "The restaurant review from last night's visit to 'La Bella Italia' was quite detailed. The reviewer, Jennifer Martinez, gave it 4.5 out of 5 stars and mentioned that the service was excellent, with their server Carlos being very attentive. The food quality received 4.8 stars, with the pasta carbonara being the highlight. The atmosphere was rated 4.2 stars, noting the cozy lighting and authentic Italian decor. The reviewer also mentioned that the prices were reasonable, with their total bill being $85 for two people including tip. They particularly enjoyed the tiramisu dessert which was described as 'absolutely divine'.",
+    "question": "Extract the restaurant name, reviewer name, overall rating, and total bill amount in the format {restaurant: ..., reviewer: ..., rating: ..., bill: ...}.",
+    "expected_output": [
+      {"restaurant": "La Bella Italia", "reviewer": "Jennifer Martinez", "rating": 4.5, "bill": 85}
+    ]
+  },
+  {
+    "dataset": "Flight itinerary details: Flight AA1234 from New York (JFK) to Los Angeles (LAX) departed at 10:30 AM on March 20th and arrived at 1:45 PM. The aircraft was a Boeing 737-800 with registration N12345. Passenger John Davis was seated in 12A, while passenger Sarah Thompson was in 15C. The flight was operated by American Airlines and had a total of 156 passengers on board. Weather conditions were clear throughout the flight with minimal turbulence reported.",
+    "question": "Extract all passenger names and their seat assignments in the format {passenger: ..., seat: ...}.",
+    "expected_output": [
+      {"passenger": "John Davis", "seat": "12A"},
+      {"passenger": "Sarah Thompson", "seat": "15C"}
+    ]
   }
 ] 
