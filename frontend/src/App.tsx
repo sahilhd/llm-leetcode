@@ -299,6 +299,99 @@ function App() {
                       <p className="text-gray-700">{result.feedback}</p>
                     </div>
 
+                    {/* Side-by-Side Comparison */}
+                    {currentQuestion && result.parsedResponse && (
+                      <div className="mb-6">
+                        <h4 className="font-medium text-gray-900 mb-3">Expected vs Model Response</h4>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                          {/* Expected Output */}
+                          <div>
+                            <h5 className="font-medium text-green-600 mb-2">Expected Output</h5>
+                            <div className="code-block bg-green-50 border border-green-200">
+                              <pre className="text-green-800">{JSON.stringify(currentQuestion.expected_output, null, 2)}</pre>
+                            </div>
+                          </div>
+                          
+                          {/* Model Response */}
+                          <div>
+                            <h5 className="font-medium text-blue-600 mb-2">Model Response</h5>
+                            <div className="code-block bg-blue-50 border border-blue-200">
+                              <pre className="text-blue-800">{JSON.stringify(result.parsedResponse, null, 2)}</pre>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Detailed Comparison Table */}
+                        <div className="mt-4">
+                          <h5 className="font-medium text-gray-900 mb-2">Detailed Comparison</h5>
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full border border-gray-200 rounded-lg">
+                              <thead className="bg-gray-50">
+                                <tr>
+                                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-700 border-b">Index</th>
+                                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-700 border-b">Expected</th>
+                                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-700 border-b">Model Response</th>
+                                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-700 border-b">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {currentQuestion.expected_output.map((expected: any, index: number) => {
+                                  const modelItem = result.parsedResponse?.[index];
+                                  const isMatch = modelItem && JSON.stringify(expected) === JSON.stringify(modelItem);
+                                  
+                                  return (
+                                    <tr key={index} className={isMatch ? 'bg-green-50' : 'bg-red-50'}>
+                                      <td className="px-4 py-2 text-sm text-gray-600 border-b">{index + 1}</td>
+                                      <td className="px-4 py-2 text-sm border-b">
+                                        <pre className="text-xs">{JSON.stringify(expected, null, 2)}</pre>
+                                      </td>
+                                      <td className="px-4 py-2 text-sm border-b">
+                                        {modelItem ? (
+                                          <pre className={`text-xs ${isMatch ? 'text-green-700' : 'text-red-700'}`}>
+                                            {JSON.stringify(modelItem, null, 2)}
+                                          </pre>
+                                        ) : (
+                                          <span className="text-red-500 text-xs">Missing</span>
+                                        )}
+                                      </td>
+                                      <td className="px-4 py-2 text-sm border-b">
+                                        {isMatch ? (
+                                          <CheckCircle className="h-4 w-4 text-green-600" />
+                                        ) : (
+                                          <XCircle className="h-4 w-4 text-red-600" />
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                                {/* Show extra model responses */}
+                                {result.parsedResponse && result.parsedResponse.length > currentQuestion.expected_output.length && 
+                                  result.parsedResponse.slice(currentQuestion.expected_output.length).map((extra: any, index: number) => (
+                                    <tr key={`extra-${index}`} className="bg-yellow-50">
+                                      <td className="px-4 py-2 text-sm text-gray-600 border-b">
+                                        Extra {index + 1}
+                                      </td>
+                                      <td className="px-4 py-2 text-sm border-b">
+                                        <span className="text-gray-400 text-xs">N/A</span>
+                                      </td>
+                                      <td className="px-4 py-2 text-sm border-b">
+                                        <pre className="text-xs text-yellow-700">
+                                          {JSON.stringify(extra, null, 2)}
+                                        </pre>
+                                      </td>
+                                      <td className="px-4 py-2 text-sm border-b">
+                                        <span className="text-yellow-600 text-xs">Extra</span>
+                                      </td>
+                                    </tr>
+                                  ))
+                                }
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Model Response */}
                     <div className="mb-4">
                       <h4 className="font-medium text-gray-900 mb-2">Model Response:</h4>

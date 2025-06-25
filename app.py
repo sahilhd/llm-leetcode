@@ -48,8 +48,7 @@ class Question(db.Model):
     id = db.Column(db.String(255), primary_key=True)
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=False)
-    dataset = db.Column(db.JSON, nullable=False)
-    expected_output = db.Column(db.JSON, nullable=False)
+    test_cases = db.Column(db.JSON, nullable=False)
     difficulty = db.Column(db.String(20), default='medium')
     category = db.Column(db.String(100), default='data_extraction')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -199,7 +198,7 @@ def submit_prompt():
             return jsonify({'error': 'Question not found'}), 404
         
         # Combine user prompt with dataset only (no question description)
-        full_prompt = f"{user_prompt}\n\nDataset:\n{json.dumps(question.dataset, indent=2)}"
+        full_prompt = f"{user_prompt}\n\nDataset:\n{json.dumps(question.test_cases, indent=2)}"
 
         # Send to OpenAI
         response = client.chat.completions.create(
@@ -215,15 +214,15 @@ def submit_prompt():
         tokens_used = response.usage.total_tokens if response.usage else 0
         
         # Validate the response
-        validation_result = validate_json_response(model_response, question.expected_output)
+        validation_result = validate_json_response(model_response, question.test_cases)
         
         # Save attempt to database
         attempt = PromptAttempt(
             user_id=user_id,
             question_id=question_id,
             user_prompt=user_prompt,
-            dataset=question.dataset,
-            expected_output=question.expected_output,
+            dataset=question.test_cases,
+            expected_output=question.test_cases,
             llm_response=model_response,
             score=validation_result['score'],
             success=validation_result['pass'],
@@ -263,7 +262,7 @@ def get_question(question_id):
             'id': question.id,
             'title': question.title,
             'description': question.description,
-            'dataset': question.dataset,
+            'test_cases': question.test_cases,
             'difficulty': question.difficulty,
             'category': question.category,
             'created_at': question.created_at.isoformat()
@@ -321,8 +320,7 @@ def list_questions():
                 'id': question.id,
                 'title': question.title,
                 'description': question.description,
-                'dataset': question.dataset,
-                'expected_output': question.expected_output,
+                'test_cases': question.test_cases,
                 'difficulty': question.difficulty,
                 'category': question.category
             })
@@ -368,15 +366,11 @@ Expected Output:
 ]
 
 Note: Only Sarah Johnson ($120k) and Lisa Wilson ($150k) earn more than $100k.''',
-                    'dataset': [
+                    'test_cases': [
                         {"name": "John Smith", "employee_id": "EMP001", "salary": 95000, "department": "Engineering"},
                         {"name": "Sarah Johnson", "employee_id": "EMP002", "salary": 120000, "department": "Sales"},
                         {"name": "Mike Davis", "employee_id": "EMP003", "salary": 85000, "department": "Marketing"},
                         {"name": "Lisa Wilson", "employee_id": "EMP004", "salary": 150000, "department": "Engineering"}
-                    ],
-                    'expected_output': [
-                        {"name": "Sarah Johnson", "employee_id": "EMP002"},
-                        {"name": "Lisa Wilson", "employee_id": "EMP004"}
                     ],
                     'difficulty': 'easy',
                     'category': 'data_extraction'
@@ -397,12 +391,7 @@ Expected Output:
 ]
 
 Note: Extract names and convert dollar amounts to numbers (remove $ and commas).''',
-                    'dataset': "The quarterly sales report shows that our top performers this quarter were Sarah Johnson from the Sales department who achieved $45,000 in sales, followed by Mike Chen from Marketing with $38,500, and Lisa Rodriguez from Sales with $42,200.",
-                    'expected_output': [
-                        {"name": "Sarah Johnson", "sales_amount": 45000},
-                        {"name": "Mike Chen", "sales_amount": 38500},
-                        {"name": "Lisa Rodriguez", "sales_amount": 42200}
-                    ],
+                    'test_cases': "The quarterly sales report shows that our top performers this quarter were Sarah Johnson from the Sales department who achieved $45,000 in sales, followed by Mike Chen from Marketing with $38,500, and Lisa Rodriguez from Sales with $42,200.",
                     'difficulty': 'medium',
                     'category': 'text_extraction'
                 }
