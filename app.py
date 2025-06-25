@@ -188,6 +188,8 @@ def submit_prompt():
         question_id = data.get('question_id')
         user_prompt = data.get('user_prompt')
         
+        print(f"Received prompt from UI: {user_prompt}")  # DEBUG LOG
+        
         if not all([user_id, question_id, user_prompt]):
             return jsonify({'error': 'Missing required fields: user_id, question_id, user_prompt'}), 400
         
@@ -196,24 +198,20 @@ def submit_prompt():
         if not question:
             return jsonify({'error': 'Question not found'}), 404
         
-        # Format the input for the model
-        formatted_input = f"""Dataset:
-{json.dumps(question.dataset, indent=2)}
-
-Question: {question.description}
-
-Please provide your response in the requested format."""
+        # Combine user prompt with dataset only (no question description)
+        full_prompt = f"{user_prompt}\n\nDataset:\n{json.dumps(question.dataset, indent=2)}"
 
         # Send to OpenAI
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": user_prompt},
-                {"role": "user", "content": formatted_input}
+                {"role": "system", "content": "You are a helpful assistant. Follow the user's instructions carefully and respond appropriately to their prompt."},
+                {"role": "user", "content": full_prompt}
             ]
         )
         
         model_response = response.choices[0].message.content.strip()
+        print(f"Model response: {model_response}")  # DEBUG LOG
         tokens_used = response.usage.total_tokens if response.usage else 0
         
         # Validate the response
@@ -241,6 +239,7 @@ Please provide your response in the requested format."""
             'success': validation_result['pass'],
             'score': validation_result['score'],
             'model_response': model_response,
+            'parsed_response': validation_result['parsed_response'],
             'missing_entries': validation_result['missing_entries'],
             'extra_entries': validation_result['extra_entries'],
             'format_issues': validation_result['format_issues'],
@@ -322,6 +321,8 @@ def list_questions():
                 'id': question.id,
                 'title': question.title,
                 'description': question.description,
+                'dataset': question.dataset,
+                'expected_output': question.expected_output,
                 'difficulty': question.difficulty,
                 'category': question.category
             })
@@ -350,7 +351,23 @@ def init_db():
                 {
                     'id': 'q1_employee_salary',
                     'title': 'Employee Salary Filter',
-                    'description': 'Return the names and employee_id of people who earn more than 100k in the format {name: ..., employee_id: ...}.',
+                    'description': '''Return the names and employee_id of people who earn more than 100k in the format {name: ..., employee_id: ...}.
+
+Sample Dataset:
+[
+  {"name": "John Smith", "employee_id": "EMP001", "salary": 95000, "department": "Engineering"},
+  {"name": "Sarah Johnson", "employee_id": "EMP002", "salary": 120000, "department": "Sales"},
+  {"name": "Mike Davis", "employee_id": "EMP003", "salary": 85000, "department": "Marketing"},
+  {"name": "Lisa Wilson", "employee_id": "EMP004", "salary": 150000, "department": "Engineering"}
+]
+
+Expected Output:
+[
+  {"name": "Sarah Johnson", "employee_id": "EMP002"},
+  {"name": "Lisa Wilson", "employee_id": "EMP004"}
+]
+
+Note: Only Sarah Johnson ($120k) and Lisa Wilson ($150k) earn more than $100k.''',
                     'dataset': [
                         {"name": "John Smith", "employee_id": "EMP001", "salary": 95000, "department": "Engineering"},
                         {"name": "Sarah Johnson", "employee_id": "EMP002", "salary": 120000, "department": "Sales"},
@@ -367,7 +384,19 @@ def init_db():
                 {
                     'id': 'q2_sales_report',
                     'title': 'Sales Report Analysis',
-                    'description': 'Extract all sales representatives mentioned in the text along with their sales amounts in the format {name: ..., sales_amount: ...}.',
+                    'description': '''Extract all sales representatives mentioned in the text along with their sales amounts in the format {name: ..., sales_amount: ...}.
+
+Sample Dataset:
+"The quarterly sales report shows that our top performers this quarter were Sarah Johnson from the Sales department who achieved $45,000 in sales, followed by Mike Chen from Marketing with $38,500, and Lisa Rodriguez from Sales with $42,200."
+
+Expected Output:
+[
+  {"name": "Sarah Johnson", "sales_amount": 45000},
+  {"name": "Mike Chen", "sales_amount": 38500},
+  {"name": "Lisa Rodriguez", "sales_amount": 42200}
+]
+
+Note: Extract names and convert dollar amounts to numbers (remove $ and commas).''',
                     'dataset': "The quarterly sales report shows that our top performers this quarter were Sarah Johnson from the Sales department who achieved $45,000 in sales, followed by Mike Chen from Marketing with $38,500, and Lisa Rodriguez from Sales with $42,200.",
                     'expected_output': [
                         {"name": "Sarah Johnson", "sales_amount": 45000},

@@ -23,6 +23,11 @@ interface SubmissionResult {
     actual: any;
     passed: boolean;
   }[];
+  modelResponse: string;
+  parsedResponse: any;
+  missingEntries: any[];
+  extraEntries: any[];
+  formatIssues: string[];
 }
 
 function App() {
@@ -75,7 +80,12 @@ function App() {
           expected: entry,
           actual: null,
           passed: false
-        })) || []
+        })) || [],
+        modelResponse: response.data.model_response,
+        parsedResponse: response.data.parsed_response,
+        missingEntries: response.data.missing_entries,
+        extraEntries: response.data.extra_entries,
+        formatIssues: response.data.format_issues
       });
     } catch (error) {
       console.error('Error submitting prompt:', error);
@@ -83,7 +93,12 @@ function App() {
         score: 0,
         feedback: 'Error submitting prompt. Please try again.',
         passed: false,
-        details: []
+        details: [],
+        modelResponse: '',
+        parsedResponse: null,
+        missingEntries: [],
+        extraEntries: [],
+        formatIssues: []
       });
     } finally {
       setIsSubmitting(false);
@@ -219,23 +234,15 @@ function App() {
 
                   {activeTab === 'testcases' && (
                     <div className="space-y-4">
+                      <h3 className="font-medium text-gray-900">Dataset:</h3>
+                      <div className="code-block">
+                        <pre>{JSON.stringify(currentQuestion.dataset, null, 2)}</pre>
+                      </div>
+                      
                       <h3 className="font-medium text-gray-900">Expected Output:</h3>
                       <div className="code-block">
                         <pre>{JSON.stringify(currentQuestion.expected_output, null, 2)}</pre>
                       </div>
-                      
-                      <h3 className="font-medium text-gray-900">Test Cases:</h3>
-                      {Array.isArray(currentQuestion.dataset) ? currentQuestion.dataset.map((testCase: any, index: number) => (
-                        <div key={index} className="code-block">
-                          <div className="text-xs text-gray-400 mb-2">Test Case {index + 1}</div>
-                          <pre>{JSON.stringify(testCase, null, 2)}</pre>
-                        </div>
-                      )) : (
-                        <div className="code-block">
-                          <div className="text-xs text-gray-400 mb-2">Dataset</div>
-                          <pre>{JSON.stringify(currentQuestion.dataset, null, 2)}</pre>
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>
@@ -292,9 +299,28 @@ function App() {
                       <p className="text-gray-700">{result.feedback}</p>
                     </div>
 
+                    {/* Model Response */}
+                    <div className="mb-4">
+                      <h4 className="font-medium text-gray-900 mb-2">Model Response:</h4>
+                      <div className="code-block">
+                        <pre>{result.modelResponse}</pre>
+                      </div>
+                    </div>
+
+                    {/* Parsed Response */}
+                    {result.parsedResponse && (
+                      <div className="mb-4">
+                        <h4 className="font-medium text-gray-900 mb-2">Parsed Response:</h4>
+                        <div className="code-block">
+                          <pre>{JSON.stringify(result.parsedResponse, null, 2)}</pre>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Validation Details */}
                     {result.details.length > 0 && (
                       <div>
-                        <h4 className="font-medium text-gray-900 mb-2">Test Case Details:</h4>
+                        <h4 className="font-medium text-gray-900 mb-2">Validation Details:</h4>
                         <div className="space-y-2">
                           {result.details.map((detail, index) => (
                             <div key={index} className="flex items-center space-x-2 p-2 rounded border">
@@ -312,6 +338,40 @@ function App() {
                               )}
                             </div>
                           ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Missing Entries */}
+                    {result.missingEntries && result.missingEntries.length > 0 && (
+                      <div className="mb-4">
+                        <h4 className="font-medium text-red-600 mb-2">Missing Entries:</h4>
+                        <div className="code-block bg-red-50 border border-red-200">
+                          <pre className="text-red-800">{JSON.stringify(result.missingEntries, null, 2)}</pre>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Extra Entries */}
+                    {result.extraEntries && result.extraEntries.length > 0 && (
+                      <div className="mb-4">
+                        <h4 className="font-medium text-yellow-600 mb-2">Extra Entries:</h4>
+                        <div className="code-block bg-yellow-50 border border-yellow-200">
+                          <pre className="text-yellow-800">{JSON.stringify(result.extraEntries, null, 2)}</pre>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Format Issues */}
+                    {result.formatIssues && result.formatIssues.length > 0 && (
+                      <div className="mb-4">
+                        <h4 className="font-medium text-red-600 mb-2">Format Issues:</h4>
+                        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                          <ul className="text-red-800 text-sm space-y-1">
+                            {result.formatIssues.map((issue, index) => (
+                              <li key={index}>• {issue}</li>
+                            ))}
+                          </ul>
                         </div>
                       </div>
                     )}
