@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
 from dotenv import load_dotenv
 import openai
 
@@ -16,6 +17,7 @@ DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://localhost/llm_leetcode')
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)

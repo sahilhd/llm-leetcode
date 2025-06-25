@@ -1,0 +1,26 @@
+/* Custom styles for the PromptLeetCode app */
+/* Most styling is handled by Tailwind CSS classes */
+
+/* Smooth scrolling for the entire app */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbar for code blocks */
+.code-block::-webkit-scrollbar {
+  height: 6px;
+}
+
+.code-block::-webkit-scrollbar-track {
+  background: #374151;
+  border-radius: 3px;
+}
+
+.code-block::-webkit-scrollbar-thumb {
+  background: #6b7280;
+  border-radius: 3px;
+}
+
+.code-block::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
