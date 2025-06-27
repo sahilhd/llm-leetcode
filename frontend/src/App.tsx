@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Play, CheckCircle, XCircle, RotateCcw, BookOpen, Trophy, Settings } from 'lucide-react';
+import { Play, CheckCircle, XCircle, RotateCcw, BookOpen, Trophy, Settings, ChevronDown, ChevronRight } from 'lucide-react';
 import './App.css';
 
 interface Question {
@@ -9,26 +9,124 @@ interface Question {
   description: string;
   difficulty: 'easy' | 'medium' | 'hard';
   category: string;
-  dataset: any;
+  test_cases: Array<{
+    input: any;
+    expected_output: any;
+  }>;
+}
+
+interface TestCaseResult {
+  test_case_id: number;
+  input: any;
   expected_output: any;
+  actual_output: any;
+  passed: boolean;
+  score: number;
+  missing_entries: any[];
+  extra_entries: any[];
 }
 
 interface SubmissionResult {
   score: number;
   feedback: string;
   passed: boolean;
-  details: {
-    test_case: number;
-    expected: any;
-    actual: any;
-    passed: boolean;
-  }[];
+  test_case_results: TestCaseResult[];
+  passed_cases: number;
+  total_cases: number;
   modelResponse: string;
   parsedResponse: any;
-  missingEntries: any[];
-  extraEntries: any[];
   formatIssues: string[];
 }
+
+// TestCaseResult Component
+const TestCaseResult: React.FC<{
+  testResult: TestCaseResult;
+  testCaseNumber: number;
+  isSample: boolean;
+}> = ({ testResult, testCaseNumber, isSample }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div className={`border rounded-lg ${testResult.passed ? 'border-success-200 bg-success-50' : 'border-error-200 bg-error-50'}`}>
+      {/* Header */}
+      <div 
+        className="flex items-center justify-between p-4 cursor-pointer"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center space-x-3">
+          {testResult.passed ? (
+            <CheckCircle className="h-5 w-5 text-success-600" />
+          ) : (
+            <XCircle className="h-5 w-5 text-error-600" />
+          )}
+          <div>
+            <h4 className="font-medium text-gray-900">Test Case {testCaseNumber}</h4>
+            <p className="text-sm text-gray-500">
+              {testResult.passed ? 'Passed' : 'Failed'}
+              {isSample && <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">Sample</span>}
+            </p>
+          </div>
+        </div>
+        {isExpanded ? (
+          <ChevronDown className="h-5 w-5 text-gray-400" />
+        ) : (
+          <ChevronRight className="h-5 w-5 text-gray-400" />
+        )}
+      </div>
+
+      {/* Expanded Content */}
+      {isExpanded && (
+        <div className="border-t border-gray-200 p-4 space-y-4">
+          {/* Input Dataset */}
+          <div>
+            <h5 className="text-sm font-medium text-gray-700 mb-2">Input Dataset:</h5>
+            <div className="code-block bg-gray-50 border border-gray-200">
+              <pre className="text-xs text-gray-800">{JSON.stringify(testResult.input, null, 2)}</pre>
+            </div>
+          </div>
+
+          {/* Expected vs Actual */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div>
+              <h5 className="text-sm font-medium text-green-600 mb-2">Expected Output:</h5>
+              <div className="code-block bg-green-50 border border-green-200">
+                <pre className="text-xs text-green-800">{JSON.stringify(testResult.expected_output, null, 2)}</pre>
+              </div>
+            </div>
+            <div>
+              <h5 className="text-sm font-medium text-blue-600 mb-2">Actual Output:</h5>
+              <div className="code-block bg-blue-50 border border-blue-200">
+                <pre className="text-xs text-blue-800">{JSON.stringify(testResult.actual_output, null, 2)}</pre>
+              </div>
+            </div>
+          </div>
+
+          {/* Issues */}
+          {!testResult.passed && (
+            <div className="space-y-3">
+              {testResult.missing_entries.length > 0 && (
+                <div>
+                  <h5 className="text-sm font-medium text-red-600 mb-2">Missing Entries:</h5>
+                  <div className="code-block bg-red-50 border border-red-200">
+                    <pre className="text-xs text-red-800">{JSON.stringify(testResult.missing_entries, null, 2)}</pre>
+                  </div>
+                </div>
+              )}
+              {testResult.extra_entries.length > 0 && (
+                <div>
+                  <h5 className="text-sm font-medium text-yellow-600 mb-2">Extra Entries:</h5>
+                  <div className="code-block bg-yellow-50 border border-yellow-200">
+                    <pre className="text-xs text-yellow-800">{JSON.stringify(testResult.extra_entries, null, 2)}</pre>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 function App() {
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -42,6 +140,16 @@ function App() {
   useEffect(() => {
     fetchQuestions();
   }, []);
+
+  // Debug: Log when result changes
+  useEffect(() => {
+    console.log('Result changed:', result);
+  }, [result]);
+
+  // Debug: Log when currentQuestion changes
+  useEffect(() => {
+    console.log('Current question changed:', currentQuestion?.id);
+  }, [currentQuestion]);
 
   const fetchQuestions = async () => {
     try {
@@ -65,39 +173,40 @@ function App() {
     setResult(null);
 
     try {
+      console.log('Submitting prompt for question:', currentQuestion.id);
       const response = await axios.post('http://localhost:5001/submit-prompt', {
         user_id: userName,
         question_id: currentQuestion.id,
         user_prompt: prompt
       });
 
-      setResult({
+      console.log('Backend response:', response.data);
+
+      const newResult = {
         score: response.data.score * 100,
         feedback: response.data.success ? 'Great job! Your prompt worked correctly.' : 'Your prompt needs improvement. Check the details below.',
         passed: response.data.success,
-        details: response.data.missing_entries?.map((entry: any, index: number) => ({
-          test_case: index,
-          expected: entry,
-          actual: null,
-          passed: false
-        })) || [],
+        test_case_results: response.data.test_case_results,
+        passed_cases: response.data.passed_cases,
+        total_cases: response.data.total_cases,
         modelResponse: response.data.model_response,
         parsedResponse: response.data.parsed_response,
-        missingEntries: response.data.missing_entries,
-        extraEntries: response.data.extra_entries,
         formatIssues: response.data.format_issues
-      });
+      };
+
+      console.log('Setting result:', newResult);
+      setResult(newResult);
     } catch (error) {
       console.error('Error submitting prompt:', error);
       setResult({
         score: 0,
         feedback: 'Error submitting prompt. Please try again.',
         passed: false,
-        details: [],
+        test_case_results: [],
+        passed_cases: 0,
+        total_cases: 0,
         modelResponse: '',
         parsedResponse: null,
-        missingEntries: [],
-        extraEntries: [],
         formatIssues: []
       });
     } finally {
@@ -229,20 +338,108 @@ function App() {
                   {activeTab === 'description' && (
                     <div className="prose prose-sm max-w-none">
                       <p className="text-gray-700 whitespace-pre-wrap">{currentQuestion.description}</p>
+                      
+                      {/* Test Case Summary */}
+                      {result && (
+                        <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                          <h4 className="font-medium text-gray-900 mb-3">Test Results Summary</h4>
+                          <div className="flex items-center space-x-4">
+                            <div className="flex items-center space-x-2">
+                              {result.passed ? (
+                                <CheckCircle className="h-5 w-5 text-success-600" />
+                              ) : (
+                                <XCircle className="h-5 w-5 text-error-600" />
+                              )}
+                              <span className={`font-medium ${result.passed ? 'text-success-600' : 'text-error-600'}`}>
+                                {result.passed_cases}/{result.total_cases} test cases passed
+                              </span>
+                            </div>
+                            <span className="text-sm text-gray-500">
+                              Score: {Math.round(result.score * 100)}%
+                            </span>
+                          </div>
+                          
+                          {/* Quick Test Case Status */}
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {result.test_case_results.map((testResult, index) => (
+                              <div
+                                key={index}
+                                className={`px-3 py-1 rounded-full text-xs font-medium ${
+                                  testResult.passed 
+                                    ? 'bg-success-100 text-success-800' 
+                                    : 'bg-error-100 text-error-800'
+                                }`}
+                              >
+                                Test Case {index + 1}: {testResult.passed ? 'Passed' : 'Failed'}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
                   {activeTab === 'testcases' && (
                     <div className="space-y-4">
-                      <h3 className="font-medium text-gray-900">Dataset:</h3>
-                      <div className="code-block">
-                        <pre>{JSON.stringify(currentQuestion.dataset, null, 2)}</pre>
+                      {/* Sample Dataset */}
+                      <div>
+                        <h3 className="font-medium text-gray-900 mb-2">Sample Dataset (Test Case 1):</h3>
+                        <div className="code-block">
+                          <pre>{JSON.stringify(currentQuestion.test_cases[0].input, null, 2)}</pre>
+                        </div>
                       </div>
                       
-                      <h3 className="font-medium text-gray-900">Expected Output:</h3>
-                      <div className="code-block">
-                        <pre>{JSON.stringify(currentQuestion.expected_output, null, 2)}</pre>
-                      </div>
+                      {/* Test Case Results */}
+                      {result && result.test_case_results.length > 0 && (
+                        <div>
+                          <h3 className="font-medium text-gray-900 mb-3">Test Case Results</h3>
+                          <div className="space-y-3">
+                            {result.test_case_results.map((testResult, index) => (
+                              <TestCaseResult 
+                                key={index}
+                                testResult={testResult}
+                                testCaseNumber={index + 1}
+                                isSample={index === 0}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* All Test Cases (when no results yet) */}
+                      {!result && (
+                        <div>
+                          <h3 className="font-medium text-gray-900 mb-3">All Test Cases</h3>
+                          <div className="space-y-3">
+                            {currentQuestion.test_cases.map((testCase, index) => (
+                              <div key={index} className="border border-gray-200 rounded-lg p-4">
+                                <div className="flex items-center justify-between mb-2">
+                                  <h4 className="font-medium text-gray-900">Test Case {index + 1}</h4>
+                                  <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                                    index === 0 ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {index === 0 ? 'Sample' : 'Hidden'}
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div>
+                                    <h5 className="text-sm font-medium text-gray-700 mb-1">Input:</h5>
+                                    <div className="code-block bg-gray-50">
+                                      <pre className="text-xs">{JSON.stringify(testCase.input, null, 2)}</pre>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <h5 className="text-sm font-medium text-gray-700 mb-1">Expected Output:</h5>
+                                    <div className="code-block bg-green-50">
+                                      <pre className="text-xs text-green-800">{JSON.stringify(testCase.expected_output, null, 2)}</pre>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -290,7 +487,7 @@ function App() {
                           <XCircle className="h-5 w-5 text-error-600" />
                         )}
                         <span className={`font-medium ${result.passed ? 'text-success-600' : 'text-error-600'}`}>
-                          Score: {result.score}/100
+                          Score: {Math.round(result.score * 100)}%
                         </span>
                       </div>
                     </div>
@@ -298,162 +495,6 @@ function App() {
                     <div className="bg-gray-50 rounded-lg p-4 mb-4">
                       <p className="text-gray-700">{result.feedback}</p>
                     </div>
-
-                    {/* Side-by-Side Comparison */}
-                    {currentQuestion && result.parsedResponse && (
-                      <div className="mb-6">
-                        <h4 className="font-medium text-gray-900 mb-3">Expected vs Model Response</h4>
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                          {/* Expected Output */}
-                          <div>
-                            <h5 className="font-medium text-green-600 mb-2">Expected Output</h5>
-                            <div className="code-block bg-green-50 border border-green-200">
-                              <pre className="text-green-800">{JSON.stringify(currentQuestion.expected_output, null, 2)}</pre>
-                            </div>
-                          </div>
-                          
-                          {/* Model Response */}
-                          <div>
-                            <h5 className="font-medium text-blue-600 mb-2">Model Response</h5>
-                            <div className="code-block bg-blue-50 border border-blue-200">
-                              <pre className="text-blue-800">{JSON.stringify(result.parsedResponse, null, 2)}</pre>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        {/* Detailed Comparison Table */}
-                        <div className="mt-4">
-                          <h5 className="font-medium text-gray-900 mb-2">Detailed Comparison</h5>
-                          <div className="overflow-x-auto">
-                            <table className="min-w-full border border-gray-200 rounded-lg">
-                              <thead className="bg-gray-50">
-                                <tr>
-                                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-700 border-b">Index</th>
-                                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-700 border-b">Expected</th>
-                                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-700 border-b">Model Response</th>
-                                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-700 border-b">Status</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {currentQuestion.expected_output.map((expected: any, index: number) => {
-                                  const modelItem = result.parsedResponse?.[index];
-                                  const isMatch = modelItem && JSON.stringify(expected) === JSON.stringify(modelItem);
-                                  
-                                  return (
-                                    <tr key={index} className={isMatch ? 'bg-green-50' : 'bg-red-50'}>
-                                      <td className="px-4 py-2 text-sm text-gray-600 border-b">{index + 1}</td>
-                                      <td className="px-4 py-2 text-sm border-b">
-                                        <pre className="text-xs">{JSON.stringify(expected, null, 2)}</pre>
-                                      </td>
-                                      <td className="px-4 py-2 text-sm border-b">
-                                        {modelItem ? (
-                                          <pre className={`text-xs ${isMatch ? 'text-green-700' : 'text-red-700'}`}>
-                                            {JSON.stringify(modelItem, null, 2)}
-                                          </pre>
-                                        ) : (
-                                          <span className="text-red-500 text-xs">Missing</span>
-                                        )}
-                                      </td>
-                                      <td className="px-4 py-2 text-sm border-b">
-                                        {isMatch ? (
-                                          <CheckCircle className="h-4 w-4 text-green-600" />
-                                        ) : (
-                                          <XCircle className="h-4 w-4 text-red-600" />
-                                        )}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                                {/* Show extra model responses */}
-                                {result.parsedResponse && result.parsedResponse.length > currentQuestion.expected_output.length && 
-                                  result.parsedResponse.slice(currentQuestion.expected_output.length).map((extra: any, index: number) => (
-                                    <tr key={`extra-${index}`} className="bg-yellow-50">
-                                      <td className="px-4 py-2 text-sm text-gray-600 border-b">
-                                        Extra {index + 1}
-                                      </td>
-                                      <td className="px-4 py-2 text-sm border-b">
-                                        <span className="text-gray-400 text-xs">N/A</span>
-                                      </td>
-                                      <td className="px-4 py-2 text-sm border-b">
-                                        <pre className="text-xs text-yellow-700">
-                                          {JSON.stringify(extra, null, 2)}
-                                        </pre>
-                                      </td>
-                                      <td className="px-4 py-2 text-sm border-b">
-                                        <span className="text-yellow-600 text-xs">Extra</span>
-                                      </td>
-                                    </tr>
-                                  ))
-                                }
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Model Response */}
-                    <div className="mb-4">
-                      <h4 className="font-medium text-gray-900 mb-2">Model Response:</h4>
-                      <div className="code-block">
-                        <pre>{result.modelResponse}</pre>
-                      </div>
-                    </div>
-
-                    {/* Parsed Response */}
-                    {result.parsedResponse && (
-                      <div className="mb-4">
-                        <h4 className="font-medium text-gray-900 mb-2">Parsed Response:</h4>
-                        <div className="code-block">
-                          <pre>{JSON.stringify(result.parsedResponse, null, 2)}</pre>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Validation Details */}
-                    {result.details.length > 0 && (
-                      <div>
-                        <h4 className="font-medium text-gray-900 mb-2">Validation Details:</h4>
-                        <div className="space-y-2">
-                          {result.details.map((detail, index) => (
-                            <div key={index} className="flex items-center space-x-2 p-2 rounded border">
-                              {detail.passed ? (
-                                <CheckCircle className="h-4 w-4 text-success-600" />
-                              ) : (
-                                <XCircle className="h-4 w-4 text-error-600" />
-                              )}
-                              <span className="text-sm">Test Case {detail.test_case + 1}</span>
-                              {!detail.passed && (
-                                <div className="text-xs text-gray-500 ml-auto">
-                                  Expected: {JSON.stringify(detail.expected)} | 
-                                  Got: {JSON.stringify(detail.actual)}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Missing Entries */}
-                    {result.missingEntries && result.missingEntries.length > 0 && (
-                      <div className="mb-4">
-                        <h4 className="font-medium text-red-600 mb-2">Missing Entries:</h4>
-                        <div className="code-block bg-red-50 border border-red-200">
-                          <pre className="text-red-800">{JSON.stringify(result.missingEntries, null, 2)}</pre>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Extra Entries */}
-                    {result.extraEntries && result.extraEntries.length > 0 && (
-                      <div className="mb-4">
-                        <h4 className="font-medium text-yellow-600 mb-2">Extra Entries:</h4>
-                        <div className="code-block bg-yellow-50 border border-yellow-200">
-                          <pre className="text-yellow-800">{JSON.stringify(result.extraEntries, null, 2)}</pre>
-                        </div>
-                      </div>
-                    )}
 
                     {/* Format Issues */}
                     {result.formatIssues && result.formatIssues.length > 0 && (

@@ -7,6 +7,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from dotenv import load_dotenv
 import openai
+from openai import OpenAI
 
 # Load environment variables
 load_dotenv()
@@ -14,7 +15,7 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://localhost/llm_leetcode')
 
 # Set up OpenAI client (v1+)
-client = openai.OpenAI(api_key=OPENAI_API_KEY)
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -53,19 +54,19 @@ class Question(db.Model):
     category = db.Column(db.String(100), default='data_extraction')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-def validate_json_response(model_response, expected_output):
+def validate_multiple_test_cases(model_response, test_cases):
     """
-    Validate if the model's response contains all expected JSON objects.
+    Validate if the model's response passes all test cases.
     
     Args:
         model_response (str): The model's response
-        expected_output (list): List of expected JSON objects
+        test_cases (list): List of test cases with input and expected_output
     
     Returns:
-        dict: Validation result with pass/fail, missing entries, and format issues
+        dict: Validation result with overall pass/fail, individual test case results, and score
     """
     try:
-        # Try to parse the model response as JSON
+        # Parse the model response
         response_text = model_response.strip()
         
         # Look for JSON array or object in the response
@@ -113,11 +114,186 @@ def validate_json_response(model_response, expected_output):
         elif not isinstance(parsed_response, list):
             return {
                 'pass': False,
-                'missing_entries': expected_output,
+                'test_case_results': [],
+                'overall_score': 0.0,
                 'format_issues': ['Response is not a valid JSON array or object'],
-                'parsed_response': None,
-                'score': 0.0
+                'parsed_response': None
             }
+        
+        # Test against each test case
+        test_case_results = []
+        passed_cases = 0
+        total_cases = len(test_cases)
+        
+        for i, test_case in enumerate(test_cases):
+            expected_output = test_case['expected_output']
+            
+            # Convert expected_output to list if it's not already
+            if isinstance(expected_output, dict):
+                expected_output = [expected_output]
+            
+            # Check if all expected entries are present
+            missing_entries = []
+            found_entries = []
+            
+            for expected_entry in expected_output:
+                found = False
+                for response_entry in parsed_response:
+                    if isinstance(response_entry, dict) and isinstance(expected_entry, dict):
+                        # Check if all keys in expected_entry match
+                        if all(key in response_entry and response_entry[key] == expected_entry[key] 
+                               for key in expected_entry.keys()):
+                            found = True
+                            found_entries.append(response_entry)
+                            break
+                
+                if not found:
+                    missing_entries.append(expected_entry)
+            
+            # Check for extra entries
+            extra_entries = []
+            for response_entry in parsed_response:
+                if response_entry not in found_entries:
+                    extra_entries.append(response_entry)
+            
+            case_passed = len(missing_entries) == 0
+            case_score = len(found_entries) / len(expected_output) if expected_output else 0.0
+            
+            if case_passed:
+                passed_cases += 1
+            
+            test_case_results.append({
+                'test_case_id': i + 1,
+                'input': test_case['input'],
+                'expected_output': expected_output,
+                'actual_output': parsed_response,
+                'passed': case_passed,
+                'score': case_score,
+                'missing_entries': missing_entries,
+                'extra_entries': extra_entries
+            })
+        
+        overall_score = passed_cases / total_cases if total_cases > 0 else 0.0
+        overall_passed = overall_score == 1.0
+        
+        return {
+            'pass': overall_passed,
+            'test_case_results': test_case_results,
+            'overall_score': overall_score,
+            'passed_cases': passed_cases,
+            'total_cases': total_cases,
+            'format_issues': [],
+            'parsed_response': parsed_response
+        }
+        
+    except json.JSONDecodeError as e:
+        return {
+            'pass': False,
+            'test_case_results': [],
+            'overall_score': 0.0,
+            'passed_cases': 0,
+            'total_cases': len(test_cases),
+            'format_issues': [f'Invalid JSON format: {str(e)}'],
+            'parsed_response': None
+        }
+    except Exception as e:
+        return {
+            'pass': False,
+            'test_case_results': [],
+            'overall_score': 0.0,
+            'passed_cases': 0,
+            'total_cases': len(test_cases),
+            'format_issues': [f'Unexpected error: {str(e)}'],
+            'parsed_response': None
+        }
+
+def validate_single_test_case(model_response, test_case):
+    """
+    Validate if the model's response passes a single test case.
+    
+    Args:
+        model_response (str): The model's response
+        test_case (dict): Test case with input and expected_output
+    
+    Returns:
+        dict: Validation result with pass/fail, score, and details
+    """
+    try:
+        # Parse the model response
+        response_text = model_response.strip()
+        
+        # Look for JSON array or object in the response
+        json_start = response_text.find('[')
+        if json_start == -1:
+            json_start = response_text.find('{')
+        
+        if json_start != -1:
+            # Extract JSON part
+            json_part = response_text[json_start:]
+            # Find the matching closing bracket/brace
+            if json_part.startswith('['):
+                bracket_count = 0
+                for i, char in enumerate(json_part):
+                    if char == '[':
+                        bracket_count += 1
+                    elif char == ']':
+                        bracket_count -= 1
+                        if bracket_count == 0:
+                            json_part = json_part[:i+1]
+                            break
+            elif json_part.startswith('{'):
+                brace_count = 0
+                for i, char in enumerate(json_part):
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            json_part = json_part[:i+1]
+                            break
+            
+            try:
+                parsed_response = json.loads(json_part)
+            except json.JSONDecodeError:
+                # If that fails, try parsing the entire response
+                try:
+                    parsed_response = json.loads(response_text)
+                except json.JSONDecodeError:
+                    # If JSON parsing completely fails, return the raw response
+                    return {
+                        'pass': False,
+                        'score': 0.0,
+                        'missing_entries': test_case['expected_output'],
+                        'extra_entries': [],
+                        'parsed_response': response_text  # Return raw response instead of None
+                    }
+        else:
+            # No JSON found, try parsing the entire response
+            try:
+                parsed_response = json.loads(response_text)
+            except json.JSONDecodeError:
+                # If JSON parsing completely fails, return the raw response
+                return {
+                    'pass': False,
+                    'score': 0.0,
+                    'missing_entries': test_case['expected_output'],
+                    'extra_entries': [],
+                    'parsed_response': response_text  # Return raw response instead of None
+                }
+        
+        # Ensure parsed_response is a list for comparison
+        if isinstance(parsed_response, dict):
+            parsed_response = [parsed_response]
+        elif not isinstance(parsed_response, list):
+            return {
+                'pass': False,
+                'score': 0.0,
+                'missing_entries': test_case['expected_output'],
+                'extra_entries': [],
+                'parsed_response': response_text  # Return raw response instead of None
+            }
+        
+        expected_output = test_case['expected_output']
         
         # Convert expected_output to list if it's not already
         if isinstance(expected_output, dict):
@@ -152,30 +328,19 @@ def validate_json_response(model_response, expected_output):
         
         return {
             'pass': passed,
+            'score': score,
             'missing_entries': missing_entries,
             'extra_entries': extra_entries,
-            'format_issues': [],
-            'parsed_response': parsed_response,
-            'score': score
+            'parsed_response': parsed_response
         }
         
-    except json.JSONDecodeError as e:
-        return {
-            'pass': False,
-            'missing_entries': expected_output,
-            'extra_entries': [],
-            'format_issues': [f'Invalid JSON format: {str(e)}'],
-            'parsed_response': None,
-            'score': 0.0
-        }
     except Exception as e:
         return {
             'pass': False,
-            'missing_entries': expected_output,
+            'score': 0.0,
+            'missing_entries': test_case['expected_output'],
             'extra_entries': [],
-            'format_issues': [f'Unexpected error: {str(e)}'],
-            'parsed_response': None,
-            'score': 0.0
+            'parsed_response': model_response  # Return raw response instead of None
         }
 
 @app.route('/submit-prompt', methods=['POST'])
@@ -192,57 +357,100 @@ def submit_prompt():
         if not all([user_id, question_id, user_prompt]):
             return jsonify({'error': 'Missing required fields: user_id, question_id, user_prompt'}), 400
         
-        # Get the question from database
+        # Get the question
         question = Question.query.get(question_id)
         if not question:
             return jsonify({'error': 'Question not found'}), 404
         
-        # Combine user prompt with dataset only (no question description)
-        full_prompt = f"{user_prompt}\n\nDataset:\n{json.dumps(question.test_cases, indent=2)}"
+        # Test the prompt against each test case separately
+        test_case_results = []
+        passed_cases = 0
+        total_cases = len(question.test_cases)
+        
+        for i, test_case in enumerate(question.test_cases):
+            test_input = test_case['input']
+            
+            # Combine user prompt with this specific test case input
+            full_prompt = f"{user_prompt}\n\nDataset:\n{json.dumps(test_input, indent=2)}"
+            
+            # Send to OpenAI
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "user", "content": full_prompt}
+                    ],
+                    temperature=0,
+                    max_tokens=1000
+                )
+                model_response = response.choices[0].message.content
+                tokens_used = response.usage.total_tokens
+            except Exception as e:
+                return jsonify({'error': f'OpenAI API error: {str(e)}'}), 500
+            
+            # Validate this specific response against this test case
+            validation_result = validate_single_test_case(model_response, test_case)
+            
+            test_case_results.append({
+                'test_case_id': i + 1,
+                'input': test_input,
+                'expected_output': test_case['expected_output'],
+                'actual_output': validation_result['parsed_response'],
+                'passed': validation_result['pass'],
+                'score': validation_result['score'],
+                'missing_entries': validation_result['missing_entries'],
+                'extra_entries': validation_result['extra_entries']
+            })
+            
+            if validation_result['pass']:
+                passed_cases += 1
+        
+        # Calculate overall results
+        overall_score = passed_cases / total_cases if total_cases > 0 else 0.0
+        overall_passed = overall_score == 1.0
+        
+        # Save attempt to database (using first test case for storage)
+        first_test_case = question.test_cases[0]
+        first_result = test_case_results[0]
+        
+        # Ensure we have a valid response to save
+        llm_response_to_save = first_result['actual_output']
+        if llm_response_to_save is None:
+            llm_response_to_save = "No valid response generated"
+        elif isinstance(llm_response_to_save, (dict, list)):
+            llm_response_to_save = json.dumps(llm_response_to_save)
 
-        # Send to OpenAI
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant. Follow the user's instructions carefully and respond appropriately to their prompt."},
-                {"role": "user", "content": full_prompt}
-            ]
-        )
-        
-        model_response = response.choices[0].message.content.strip()
-        print(f"Model response: {model_response}")  # DEBUG LOG
-        tokens_used = response.usage.total_tokens if response.usage else 0
-        
-        # Validate the response
-        validation_result = validate_json_response(model_response, question.test_cases)
-        
-        # Save attempt to database
+        dataset_to_save = first_test_case['input']
+        if isinstance(dataset_to_save, (dict, list)):
+            dataset_to_save = json.dumps(dataset_to_save)
+
+        expected_output_to_save = first_test_case['expected_output']
+        if isinstance(expected_output_to_save, (dict, list)):
+            expected_output_to_save = json.dumps(expected_output_to_save)
+
         attempt = PromptAttempt(
             user_id=user_id,
             question_id=question_id,
             user_prompt=user_prompt,
-            dataset=question.test_cases,
-            expected_output=question.test_cases,
-            llm_response=model_response,
-            score=validation_result['score'],
-            success=validation_result['pass'],
+            dataset=dataset_to_save,
+            expected_output=expected_output_to_save,
+            llm_response=llm_response_to_save,
+            score=overall_score,
+            success=overall_passed,
             model="gpt-4o",
             tokens_used=tokens_used
         )
-        
         db.session.add(attempt)
         db.session.commit()
         
         return jsonify({
+            'success': overall_passed,
+            'score': overall_score,
+            'passed_cases': passed_cases,
+            'total_cases': total_cases,
+            'test_case_results': test_case_results,
+            'format_issues': [],
             'attempt_id': attempt.id,
-            'success': validation_result['pass'],
-            'score': validation_result['score'],
-            'model_response': model_response,
-            'parsed_response': validation_result['parsed_response'],
-            'missing_entries': validation_result['missing_entries'],
-            'extra_entries': validation_result['extra_entries'],
-            'format_issues': validation_result['format_issues'],
-            'tokens_used': tokens_used,
             'created_at': attempt.created_at.isoformat()
         })
         
@@ -351,26 +559,46 @@ def init_db():
                     'title': 'Employee Salary Filter',
                     'description': '''Return the names and employee_id of people who earn more than 100k in the format {name: ..., employee_id: ...}.
 
-Sample Dataset:
-[
-  {"name": "John Smith", "employee_id": "EMP001", "salary": 95000, "department": "Engineering"},
-  {"name": "Sarah Johnson", "employee_id": "EMP002", "salary": 120000, "department": "Sales"},
-  {"name": "Mike Davis", "employee_id": "EMP003", "salary": 85000, "department": "Marketing"},
-  {"name": "Lisa Wilson", "employee_id": "EMP004", "salary": 150000, "department": "Engineering"}
-]
-
-Expected Output:
-[
-  {"name": "Sarah Johnson", "employee_id": "EMP002"},
-  {"name": "Lisa Wilson", "employee_id": "EMP004"}
-]
-
-Note: Only Sarah Johnson ($120k) and Lisa Wilson ($150k) earn more than $100k.''',
+This question tests your ability to filter data based on a condition and extract specific fields.''',
                     'test_cases': [
-                        {"name": "John Smith", "employee_id": "EMP001", "salary": 95000, "department": "Engineering"},
-                        {"name": "Sarah Johnson", "employee_id": "EMP002", "salary": 120000, "department": "Sales"},
-                        {"name": "Mike Davis", "employee_id": "EMP003", "salary": 85000, "department": "Marketing"},
-                        {"name": "Lisa Wilson", "employee_id": "EMP004", "salary": 150000, "department": "Engineering"}
+                        {
+                            'input': [
+                                {"name": "John Smith", "employee_id": "EMP001", "salary": 95000, "department": "Engineering"},
+                                {"name": "Sarah Johnson", "employee_id": "EMP002", "salary": 120000, "department": "Sales"},
+                                {"name": "Mike Davis", "employee_id": "EMP003", "salary": 85000, "department": "Marketing"},
+                                {"name": "Lisa Wilson", "employee_id": "EMP004", "salary": 150000, "department": "Engineering"}
+                            ],
+                            'expected_output': [
+                                {"name": "Sarah Johnson", "employee_id": "EMP002"},
+                                {"name": "Lisa Wilson", "employee_id": "EMP004"}
+                            ]
+                        },
+                        {
+                            'input': [
+                                {"name": "Alice Brown", "employee_id": "EMP005", "salary": 75000, "department": "HR"},
+                                {"name": "Bob Green", "employee_id": "EMP006", "salary": 110000, "department": "Engineering"},
+                                {"name": "Carol White", "employee_id": "EMP007", "salary": 95000, "department": "Marketing"}
+                            ],
+                            'expected_output': [
+                                {"name": "Bob Green", "employee_id": "EMP006"}
+                            ]
+                        },
+                        {
+                            'input': [
+                                {"name": "David Black", "employee_id": "EMP008", "salary": 85000, "department": "Sales"},
+                                {"name": "Eva Red", "employee_id": "EMP009", "salary": 92000, "department": "Engineering"}
+                            ],
+                            'expected_output': []
+                        },
+                        {
+                            'input': [
+                                {"name": "Frank Blue", "employee_id": "EMP010", "salary": 100000, "department": "Engineering"},
+                                {"name": "Grace Yellow", "employee_id": "EMP011", "salary": 100001, "department": "Sales"}
+                            ],
+                            'expected_output': [
+                                {"name": "Grace Yellow", "employee_id": "EMP011"}
+                            ]
+                        }
                     ],
                     'difficulty': 'easy',
                     'category': 'data_extraction'
@@ -380,18 +608,35 @@ Note: Only Sarah Johnson ($120k) and Lisa Wilson ($150k) earn more than $100k.''
                     'title': 'Sales Report Analysis',
                     'description': '''Extract all sales representatives mentioned in the text along with their sales amounts in the format {name: ..., sales_amount: ...}.
 
-Sample Dataset:
-"The quarterly sales report shows that our top performers this quarter were Sarah Johnson from the Sales department who achieved $45,000 in sales, followed by Mike Chen from Marketing with $38,500, and Lisa Rodriguez from Sales with $42,200."
-
-Expected Output:
-[
-  {"name": "Sarah Johnson", "sales_amount": 45000},
-  {"name": "Mike Chen", "sales_amount": 38500},
-  {"name": "Lisa Rodriguez", "sales_amount": 42200}
-]
-
-Note: Extract names and convert dollar amounts to numbers (remove $ and commas).''',
-                    'test_cases': "The quarterly sales report shows that our top performers this quarter were Sarah Johnson from the Sales department who achieved $45,000 in sales, followed by Mike Chen from Marketing with $38,500, and Lisa Rodriguez from Sales with $42,200.",
+This question tests your ability to extract structured data from unstructured text.''',
+                    'test_cases': [
+                        {
+                            'input': "The quarterly sales report shows that our top performers this quarter were Sarah Johnson from the Sales department who achieved $45,000 in sales, followed by Mike Chen from Marketing with $38,500, and Lisa Rodriguez from Sales with $42,200.",
+                            'expected_output': [
+                                {"name": "Sarah Johnson", "sales_amount": 45000},
+                                {"name": "Mike Chen", "sales_amount": 38500},
+                                {"name": "Lisa Rodriguez", "sales_amount": 42200}
+                            ]
+                        },
+                        {
+                            'input': "This month's sales were disappointing. Only Tom Wilson managed to reach $25,000 in sales, while others struggled to meet their targets.",
+                            'expected_output': [
+                                {"name": "Tom Wilson", "sales_amount": 25000}
+                            ]
+                        },
+                        {
+                            'input': "No sales representatives met their targets this quarter. The highest performer was only able to achieve $15,500 in sales.",
+                            'expected_output': []
+                        },
+                        {
+                            'input': "Our star performers include Alex Kim ($125,000), Maria Garcia ($98,500), and David Lee ($87,200). They exceeded all expectations.",
+                            'expected_output': [
+                                {"name": "Alex Kim", "sales_amount": 125000},
+                                {"name": "Maria Garcia", "sales_amount": 98500},
+                                {"name": "David Lee", "sales_amount": 87200}
+                            ]
+                        }
+                    ],
                     'difficulty': 'medium',
                     'category': 'text_extraction'
                 }
