@@ -8,6 +8,9 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 import openai
 from openai import OpenAI
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask_bcrypt import Bcrypt
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 
 # Load environment variables
 load_dotenv()
@@ -18,29 +21,56 @@ DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://localhost/llm_leetcode')
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-change-this')
+app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'your-jwt-secret-key-change-this')
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Initialize extensions
 db = SQLAlchemy(app)
+CORS(app)
+bcrypt = Bcrypt(app)
+jwt = JWTManager(app)
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
 # Database Models
+class User(UserMixin, db.Model):
+    __tablename__ = 'users'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    date_joined = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationship to prompt attempts
+    prompt_attempts = db.relationship('PromptAttempt', backref='user', lazy=True)
+    
+    def set_password(self, password):
+        self.password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+    
+    def check_password(self, password):
+        return bcrypt.check_password_hash(self.password_hash, password)
+
 class PromptAttempt(db.Model):
     __tablename__ = 'prompt_attempts'
     
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.String(255), nullable=False)
-    question_id = db.Column(db.String(255), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    question_id = db.Column(db.String(255), db.ForeignKey('questions.id'), nullable=False)
     user_prompt = db.Column(db.Text, nullable=False)
-    dataset = db.Column(db.JSON, nullable=False)
-    expected_output = db.Column(db.JSON, nullable=False)
-    llm_response = db.Column(db.Text, nullable=False)
+    dataset = db.Column(db.Text, nullable=False)  # JSON string
+    expected_output = db.Column(db.Text, nullable=False)  # JSON string
+    llm_response = db.Column(db.Text, nullable=False)  # JSON string or raw response
     score = db.Column(db.Float, nullable=False)
     success = db.Column(db.Boolean, nullable=False)
-    model = db.Column(db.String(50), nullable=False)
-    tokens_used = db.Column(db.Integer, nullable=False)
+    model = db.Column(db.String(50), default='gpt-4o')
+    tokens_used = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class Question(db.Model):
@@ -344,18 +374,19 @@ def validate_single_test_case(model_response, test_case):
         }
 
 @app.route('/submit-prompt', methods=['POST'])
+@jwt_required()
 def submit_prompt():
-    """Submit a user prompt for evaluation against a specific question."""
+    data = request.get_json()
+    user_id = int(get_jwt_identity())  # Get user_id from JWT token
+    
+    if not data or not data.get('question_id') or not data.get('user_prompt'):
+        return jsonify({'error': 'Missing required fields: question_id, user_prompt'}), 400
+    
     try:
-        data = request.get_json()
-        user_id = data.get('user_id')
-        question_id = data.get('question_id')
-        user_prompt = data.get('user_prompt')
+        question_id = data['question_id']
+        user_prompt = data['user_prompt']
         
         print(f"Received prompt from UI: {user_prompt}")  # DEBUG LOG
-        
-        if not all([user_id, question_id, user_prompt]):
-            return jsonify({'error': 'Missing required fields: user_id, question_id, user_prompt'}), 400
         
         # Get the question
         question = Question.query.get(question_id)
@@ -648,6 +679,143 @@ This question tests your ability to extract structured data from unstructured te
             
             db.session.commit()
             logging.info("Sample questions created successfully!")
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+# Authentication routes
+@app.route('/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    
+    if not data or not data.get('username') or not data.get('email') or not data.get('password'):
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    # Check if user already exists
+    if User.query.filter_by(username=data['username']).first():
+        return jsonify({'error': 'Username already exists'}), 400
+    
+    if User.query.filter_by(email=data['email']).first():
+        return jsonify({'error': 'Email already exists'}), 400
+    
+    # Create new user
+    user = User(
+        username=data['username'],
+        email=data['email']
+    )
+    user.set_password(data['password'])
+    
+    db.session.add(user)
+    db.session.commit()
+    
+    # Create access token
+    access_token = create_access_token(identity=str(user.id))
+    
+    return jsonify({
+        'message': 'User registered successfully',
+        'access_token': access_token,
+        'user': {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'date_joined': user.date_joined.isoformat()
+        }
+    }), 201
+
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    
+    if not data or not data.get('username') or not data.get('password'):
+        return jsonify({'error': 'Missing username or password'}), 400
+    
+    # Find user by username or email
+    user = User.query.filter_by(username=data['username']).first()
+    if not user:
+        user = User.query.filter_by(email=data['username']).first()
+    
+    if not user or not user.check_password(data['password']):
+        return jsonify({'error': 'Invalid username or password'}), 401
+    
+    # Create access token
+    access_token = create_access_token(identity=str(user.id))
+    
+    return jsonify({
+        'message': 'Login successful',
+        'access_token': access_token,
+        'user': {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'date_joined': user.date_joined.isoformat()
+        }
+    })
+
+@app.route('/logout', methods=['POST'])
+@jwt_required()
+def logout():
+    # In a real application, you might want to blacklist the token
+    # For now, we'll just return a success message
+    return jsonify({'message': 'Logout successful'})
+
+@app.route('/profile', methods=['GET'])
+@jwt_required()
+def get_profile():
+    user_id = int(get_jwt_identity())
+    user = User.query.get(user_id)
+    
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    # Get user statistics
+    total_attempts = PromptAttempt.query.filter_by(user_id=user_id).count()
+    correct_solutions = PromptAttempt.query.filter_by(user_id=user_id, success=True).count()
+    
+    return jsonify({
+        'user': {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'date_joined': user.date_joined.isoformat()
+        },
+        'stats': {
+            'total_attempts': total_attempts,
+            'correct_solutions': correct_solutions,
+            'success_rate': (correct_solutions / total_attempts * 100) if total_attempts > 0 else 0
+        }
+    })
+
+@app.route('/submissions', methods=['GET'])
+@jwt_required()
+def get_submissions():
+    user_id = int(get_jwt_identity())
+    
+    # Get user's submissions with question details
+    submissions = db.session.query(
+        PromptAttempt, Question.title
+    ).join(
+        Question, PromptAttempt.question_id == Question.id
+    ).filter(
+        PromptAttempt.user_id == user_id
+    ).order_by(
+        PromptAttempt.created_at.desc()
+    ).all()
+    
+    return jsonify({
+        'submissions': [
+            {
+                'id': attempt.id,
+                'question_title': title,
+                'question_id': attempt.question_id,
+                'status': '✅ Passed' if attempt.success else '❌ Failed',
+                'score': attempt.score,
+                'date_submitted': attempt.created_at.isoformat(),
+                'user_prompt': attempt.user_prompt
+            }
+            for attempt, title in submissions
+        ]
+    })
 
 if __name__ == '__main__':
     init_db()
